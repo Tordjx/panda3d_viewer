@@ -41,7 +41,7 @@ class ViewerApp(ShowBase):
 
         self.render.set_shader_auto()
         self.render.set_antialias(AntialiasAttrib.MAuto)
-        self.camera = self.set_camera_intrinsics(config,buffer=self.win)
+        self.camera = self.set_camera_intrinsics(buffer=self.win)
         self._camera_defaults = [(4.0, -4.0, 1.5), (0, 0, 0.5)]
         
         self.enable_depth_rendering(self.config.GetBool('depth-render', False),config)
@@ -93,7 +93,7 @@ class ViewerApp(ShowBase):
         """Execute one main loop step."""
         self.task_mgr.step()
 
-    def set_camera_intrinsics(self,config,buffer) :
+    def set_camera_intrinsics(self,buffer) :
         lens = PerspectiveLens()
         lens.setNearFar(self.config.GetFloat('znear', 0.2), self.config.GetFloat('zfar', 100))
         lens.setFov(self.config.GetFloat('fovx',60), self.config.GetFloat('fovy',60))
@@ -415,6 +415,9 @@ class ViewerApp(ShowBase):
         """
         self.camera.set_pos(Vec3(*pos))
         self.camera.look_at(Vec3(*look_at))
+        if self.config.GetBool('depth-render', False) :
+            self.depthCam.set_pos(Vec3(*pos))
+            self.depthCam.look_at(Vec3(*look_at))
         if self.windowType == 'onscreen':
             # update mouse control according to the camera position
             cam_mat = Mat4(self.camera.get_mat())
@@ -480,7 +483,20 @@ class ViewerApp(ShowBase):
             self.render.clear_fog()
 
     def enable_depth_rendering(self,enable,config) :
-        pass
+        winprops = WindowProperties.size(self.win.getXSize(), self.win.getYSize())
+        fbprops = FrameBufferProperties()
+        fbprops.setDepthBits(1)
+        self.depthBuffer = self.graphicsEngine.makeOutput(
+            self.pipe, "depth buffer", -2,
+            fbprops, winprops,
+            GraphicsPipe.BFRefuseWindow,
+            self.win.getGsg(), self.win)
+        self.depthTex = Texture()
+        self.depthTex.setFormat(Texture.FDepthComponent)
+        self.depthBuffer.addRenderTexture(self.depthTex,
+            GraphicsOutput.RTMCopyRam, GraphicsOutput.RTPDepth)
+        self.depthCam = self.set_camera_intrinsics(buffer=self.depthBuffer)
+        self.depthCam.reparentTo(self.cam)
     def show_axes(self, show):
         """Turn the axes rendering on or off.
 
@@ -570,7 +586,18 @@ class ViewerApp(ShowBase):
         array = np.asarray(image).reshape((ysize, xsize, dsize))
         return np.flipud(array)
     def get_depth_screenshot(self):
-        pass
+        """
+        Returns the camera's depth image, which is of type float32 and has
+        values between 0.0 and 1.0.
+        """
+        if not self.config.GetBool('depth-render', False):
+            raise Exception('You need to enable depth rendering in the config to get a depth screenshot')
+        data = self.depthTex.getRamImage()
+        depth_image = np.frombuffer(data, np.float32)
+        depth_image.shape = (self.depthTex.getYSize(), self.depthTex.getXSize(), self.depthTex.getNumComponents())
+        depth_image = np.flipud(depth_image)
+        near,far= self.config.GetFloat('znear', 0.2), self.config.GetFloat('zfar', 100)
+        return far * near / (far - (far - near) * depth_image)
     def _make_light_ambient(self, color):
         light = AmbientLight('Ambient Light')
         light.set_color(Vec3(*color))
