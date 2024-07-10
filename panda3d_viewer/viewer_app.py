@@ -44,7 +44,7 @@ class ViewerApp(ShowBase):
         self.camera = self.set_camera_intrinsics(buffer=self.win)
         self._camera_defaults = [(4.0, -4.0, 1.5), (0, 0, 0.5)]
         
-        self.enable_depth_rendering(self.config.GetBool('depth-render', False),config)
+        self.enable_depth_rendering(self.config.GetBool('depth-render', False))
         self.reset_camera(*self._camera_defaults)
 
         self._spotlight = self.config.GetBool('enable-spotlight', False)
@@ -94,10 +94,12 @@ class ViewerApp(ShowBase):
         self.task_mgr.step()
 
     def set_camera_intrinsics(self,buffer) :
+        """Set camera intrinsics using the parameters provided in config."""
         lens = PerspectiveLens()
         lens.setNearFar(self.config.GetFloat('znear', 0.2), self.config.GetFloat('zfar', 100))
         lens.setFov(self.config.GetFloat('fovx',60), self.config.GetFloat('fovy',60))
         return self.makeCamera(buffer, lens = lens)
+    
     def join(self):
         """Run the application until the main window closes."""
         self.run()
@@ -408,7 +410,7 @@ class ViewerApp(ShowBase):
 
     def reset_camera(self, pos, look_at):
         """Reset camera position.
-
+        If the depth rendering is enabled, the depth camera is also reset.
         Arguments:
             pos {Vec3} -- camera position
             look_at {Vec3} -- camera target point
@@ -482,21 +484,24 @@ class ViewerApp(ShowBase):
         else:
             self.render.clear_fog()
 
-    def enable_depth_rendering(self,enable,config) :
-        winprops = WindowProperties.size(self.win.getXSize(), self.win.getYSize())
-        fbprops = FrameBufferProperties()
-        fbprops.setDepthBits(1)
-        self.depthBuffer = self.graphicsEngine.makeOutput(
-            self.pipe, "depth buffer", -2,
-            fbprops, winprops,
-            GraphicsPipe.BFRefuseWindow,
-            self.win.getGsg(), self.win)
-        self.depthTex = Texture()
-        self.depthTex.setFormat(Texture.FDepthComponent)
-        self.depthBuffer.addRenderTexture(self.depthTex,
-            GraphicsOutput.RTMCopyRam, GraphicsOutput.RTPDepth)
-        self.depthCam = self.set_camera_intrinsics(buffer=self.depthBuffer)
-        self.depthCam.reparentTo(self.cam)
+    def enable_depth_rendering(self, enable) :
+        """Enable depth rendering. Creates an additional depth buffer and depth camera."""
+        if enable :
+            winprops = WindowProperties.size(self.win.getXSize(), self.win.getYSize())
+            fbprops = FrameBufferProperties()
+            fbprops.setDepthBits(1)
+            self.depthBuffer = self.graphicsEngine.makeOutput(
+                self.pipe, "depth buffer", -2,
+                fbprops, winprops,
+                GraphicsPipe.BFRefuseWindow,
+                self.win.getGsg(), self.win)
+            self.depthTex = Texture()
+            self.depthTex.setFormat(Texture.FDepthComponent)
+            self.depthBuffer.addRenderTexture(self.depthTex,
+                GraphicsOutput.RTMCopyRam, GraphicsOutput.RTPDepth)
+            self.depthCam = self.set_camera_intrinsics(buffer=self.depthBuffer)
+            self.depthCam.reparentTo(self.cam)
+
     def show_axes(self, show):
         """Turn the axes rendering on or off.
 
@@ -587,8 +592,7 @@ class ViewerApp(ShowBase):
         return np.flipud(array)
     def get_depth_screenshot(self):
         """
-        Returns the camera's depth image, which is of type float32 and has
-        values between 0.0 and 1.0.
+        Returns the camera's depth image.
         """
         if not self.config.GetBool('depth-render', False):
             raise Exception('You need to enable depth rendering in the config to get a depth screenshot')
@@ -598,6 +602,7 @@ class ViewerApp(ShowBase):
         depth_image = np.flipud(depth_image)
         near,far= self.config.GetFloat('znear', 0.2), self.config.GetFloat('zfar', 100)
         return far * near / (far - (far - near) * depth_image)
+
     def _make_light_ambient(self, color):
         light = AmbientLight('Ambient Light')
         light.set_color(Vec3(*color))
